@@ -119,9 +119,15 @@ function App() {
   }, [])
 
   // 2. Login function
+  // 2. Login function
   const handleLogin = async (e) => {
     e.preventDefault()
-    const { error } = await supabase.auth.signInWithOtp({ email })
+    const { error } = await supabase.auth.signInWithOtp({
+      email,
+      options: {
+        emailRedirectTo: window.location.origin,
+      },
+    })
     if (error) {
       setMessage('❌ Error: ' + error.message)
     } else {
