@@ -120,18 +120,40 @@ function App() {
 
   // 2. Login function
   // 2. Login function
+  const [otp, setOtp] = useState('')
+  const [otpSent, setOtpSent] = useState(false)
+  const [loading, setLoading] = useState(false)
+
+  // 2. Login function (Send OTP)
   const handleLogin = async (e) => {
     e.preventDefault()
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        emailRedirectTo: window.location.origin,
-      },
-    })
+    setLoading(true)
+    const { error } = await supabase.auth.signInWithOtp({ email })
+    setLoading(false)
     if (error) {
       setMessage('❌ Error: ' + error.message)
     } else {
-      setMessage('✉️ Check your email — a magic link has been sent!')
+      setOtpSent(true)
+      setMessage('✉️ OTP sent to your email!')
+    }
+  }
+
+  // Verify OTP function
+  const handleVerifyOtp = async (e) => {
+    e.preventDefault()
+    setLoading(true)
+    const { data, error } = await supabase.auth.verifyOtp({
+      email,
+      token: otp,
+      type: 'email',
+    })
+    setLoading(false)
+
+    if (error) {
+      setMessage('❌ Error: ' + error.message)
+    } else {
+      // Session will be handled by onAuthStateChange, but we can clear message
+      setMessage('✅ Login successful!')
     }
   }
 
@@ -847,19 +869,54 @@ function App() {
 
           <div className="login-section">
             <h3 className="login-heading">🌐 Access Portal 🌐</h3>
-            <form onSubmit={handleLogin} className="login-form">
-              <input
-                type="email"
-                placeholder="Enter your email address..."
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="email-input"
-                required
-              />
-              <button type="submit" className="btn-login">
-                🚀 SEND MAGIC LINK 🚀
-              </button>
-            </form>
+            {/* Conditional Form: Login or OTP */}
+            {!otpSent ? (
+              <form onSubmit={handleLogin} className="login-form">
+                <input
+                  type="email"
+                  placeholder="Enter your email address..."
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="email-input"
+                  required
+                  disabled={loading}
+                />
+                <button type="submit" className="btn-login" disabled={loading}>
+                  {loading ? 'Sending...' : '🚀 SEND OTP 🚀'}
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={handleVerifyOtp} className="login-form">
+                <p style={{ color: '#39ff14', fontSize: '14px', textAlign: 'center' }}>Enter the code sent to {email}</p>
+                <input
+                  type="text"
+                  placeholder="Enter 6-digit OTP code"
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value)}
+                  className="email-input"
+                  required
+                  autoFocus
+                  disabled={loading}
+                />
+                <button type="submit" className="btn-login" disabled={loading}>
+                  {loading ? 'Verifying...' : '� VERIFY OTP 🔐'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setOtpSent(false)}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: 'var(--muted)',
+                    marginTop: '10px',
+                    cursor: 'pointer',
+                    fontSize: '13px'
+                  }}
+                >
+                  Change email
+                </button>
+              </form>
+            )}
             {message && <p className="message">{message}</p>}
           </div>
         </div>
