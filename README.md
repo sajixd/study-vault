@@ -1,16 +1,64 @@
-# React + Vite
+# 📂 Study Vault
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A secure, Google Drive-like file management application built with **React**, **Vite**, and **Supabase**.
 
-Currently, two official plugins are available:
+## ✨ Features
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+*   **🔒 Secure Authentication**: OTP-based login via Email (powered by Supabase).
+*   **📁 File Management**: Create folders, upload files, rename, and organize your documents.
+*   **🗑️ Trash System**: Move items to trash, restore them, or permanently delete them.
+*   **📱 Fully Responsive**: Optimized for both Desktop and Mobile devices.
+*   **🎨 Modern UI**: Hacker/Dark themed interface with neon accents.
+*   **☁️ Cloud Storage**: All files are securely stored in Supabase Storage.
 
-## React Compiler
+## 🛠️ Tech Stack
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+*   **Frontend**: React.js, Vite
+*   **Backend & Database**: Supabase (PostgreSQL)
+*   **Storage**: Supabase Storage
+*   **Mobile**: Capacitor (Android APK)
 
-## Expanding the ESLint configuration
+## 🚀 Getting Started
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+### Prerequisites
+
+*   Node.js installed
+*   Supabase account
+
+### Installation
+
+1.  Clone the repository:
+    ```bash
+    git clone https://github.com/sajixd/study-vault.git
+    cd study-vault
+    ```
+
+2.  Install dependencies:
+    ```bash
+    npm install
+    ```
+
+3.  Set up Environment Variables:
+    Create a `.env` file in the root directory and add your Supabase credentials:
+    ```env
+    VITE_SUPABASE_URL=your_supabase_url
+    VITE_SUPABASE_KEY=your_supabase_anon_key
+    ```
+
+4.  Run locally:
+    ```bash
+    npm run dev
+    ```
+
+## 📱 Android Build
+
+To build the Android APK:
+
+```bash
+npx cap sync
+cd android
+./gradlew assembleRelease
+```
+
+---
+*Built with ❤️ by Sajid*
