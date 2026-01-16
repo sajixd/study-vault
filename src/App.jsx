@@ -13,8 +13,9 @@ function App() {
   const [currentFolderId, setCurrentFolderId] = useState(null) // Current folder ID (null = Home)
   const [breadcrumbs, setBreadcrumbs] = useState([]) // Breadcrumb navigation
   const [showNewDropdown, setShowNewDropdown] = useState(false) // New button dropdown
-  const [isCreatingFolder, setIsCreatingFolder] = useState(false)
   const [newFolderName, setNewFolderName] = useState('')
+  const [newFolderModal, setNewFolderModal] = useState(false)
+  const [showUploadModal, setShowUploadModal] = useState(false)
   const [showFolderMenu, setShowFolderMenu] = useState(null) // Which folder menu is open
   const [showFileMenu, setShowFileMenu] = useState(null) // Which file menu is open
   const [isRenamingFolder, setIsRenamingFolder] = useState(null) // Which folder is being renamed
@@ -22,9 +23,17 @@ function App() {
   const [renameValue, setRenameValue] = useState('') // New name for folder/file
   const [trash, setTrash] = useState([]) // Deleted items
   const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false) // Mobile sidebar state
+  const [toasts, setToasts] = useState([]) // Toast notifications
+  const [smallConfirm, setSmallConfirm] = useState({
+    open: false,
+    title: '',
+    message: '',
+    onConfirm: null
+  })
 
   const confirmActionRef = useRef(null)
   const uploadInputRef = useRef(null)
+  const uploadModalInputRef = useRef(null)
   const [confirmDialog, setConfirmDialog] = useState({
     open: false,
     title: '',
@@ -41,6 +50,27 @@ function App() {
   const closeConfirmDialog = () => {
     confirmActionRef.current = null
     setConfirmDialog((prev) => ({ ...prev, open: false }))
+  }
+
+  // Toast notification functions
+  const showToast = (message) => {
+    const id = Date.now()
+    setToasts(prev => [...prev, { id, message }])
+    setTimeout(() => {
+      setToasts(prev => prev.filter(toast => toast.id !== id))
+    }, 3000)
+  }
+
+  const removeToast = (id) => {
+    setToasts(prev => prev.filter(toast => toast.id !== id))
+  }
+
+  const showSmallConfirm = ({ title, message, onConfirm }) => {
+    setSmallConfirm({ open: true, title, message, onConfirm })
+  }
+
+  const closeSmallConfirm = () => {
+    setSmallConfirm({ open: false, title: '', message: '', onConfirm: null })
   }
 
   // Close menus when clicking outside
@@ -138,7 +168,7 @@ function App() {
         setMessage('❌ Error fetching folders: ' + error.message)
       } else {
         console.log('fetchFolders: Success! Data:', data)
-        
+
         // Count files in each folder
         const foldersWithCounts = await Promise.all(
           (data || []).map(async (folder) => {
@@ -146,7 +176,7 @@ function App() {
             return { ...folder, file_count: fileCount }
           })
         )
-        
+
         setFolders(foldersWithCounts)
         console.log('fetchFolders: State updated with', foldersWithCounts?.length || 0, 'folders')
       }
@@ -258,7 +288,7 @@ function App() {
     setBreadcrumbs(pathParts)
   }
 
-  
+
   // File download karne ke liye
   const downloadFile = async (fileName) => {
     // Build folder path
@@ -291,15 +321,34 @@ function App() {
     }
   }
 
+  // 15. Fetch trash items
+  const fetchTrash = async () => {
+    if (!session) return
+
+    const { data, error } = await supabase
+      .from('folders')
+      .select('*')
+      .eq('user_id', session.user.id)
+      .not('deleted_at', 'is', null)
+      .order('deleted_at', { ascending: false })
+
+    if (error) {
+      setMessage('❌ Error fetching trash: ' + error.message)
+    } else {
+      setTrash(data || [])
+    }
+  }
+
   // Jab bhi currentFolderId badle, folders aur files firse mangwao
   useEffect(() => {
     if (session) {
       console.log('useEffect triggered - session exists, fetching data...')
-      // Only fetch folders if not in trash
       if (currentFolderId !== 'trash') {
         fetchFolders()
+        fetchFiles()
+      } else {
+        fetchTrash()
       }
-      fetchFiles()
       updateBreadcrumbs()
     } else {
       console.log('useEffect triggered - no session')
@@ -329,7 +378,7 @@ function App() {
       folderPath = pathParts.join('/')
     }
 
-    const uploadPath = folderPath 
+    const uploadPath = folderPath
       ? `${session.user.id}/${folderPath}/${Date.now()}-${file.name}`
       : `${session.user.id}/${Date.now()}-${file.name}`
 
@@ -338,10 +387,10 @@ function App() {
     if (error) {
       setMessage('❌ Error: ' + error.message)
     } else {
-      setMessage('✅ File uploaded successfully!')
+      showToast('File uploaded successfully!')
       fetchFiles()
     }
-    
+
     setUploading(false)
 
     if (uploadInputRef.current) {
@@ -364,10 +413,10 @@ function App() {
     if (error) {
       setMessage('❌ Error creating folder: ' + error.message)
     } else {
-      setMessage('✅ Folder created successfully!')
+      showToast('Folder created successfully')
       setNewFolderName('')
-      setIsCreatingFolder(false)
-      
+      setNewFolderModal(false)
+
       // Small delay to ensure database is updated, then refresh
       setTimeout(() => {
         fetchFolders()
@@ -387,10 +436,9 @@ function App() {
 
   // 10. Move folder to trash
   const moveToTrash = (folderId) => {
-    openConfirmDialog({
-      title: 'Move folder to Trash?',
+    showSmallConfirm({
+      title: 'Move to Trash?',
       message: 'Are you sure you want to move this folder to Trash?',
-      confirmText: 'Move to Trash',
       onConfirm: async () => {
         const { error } = await supabase
           .from('folders')
@@ -401,10 +449,11 @@ function App() {
         if (error) {
           setMessage('❌ Error moving folder to trash: ' + error.message)
         } else {
-          setMessage('✅ Folder moved to Trash!')
+          showToast('Folder moved to Trash')
           setShowFolderMenu(null)
           fetchFolders()
         }
+        closeSmallConfirm()
       }
     })
   }
@@ -434,28 +483,28 @@ function App() {
   const downloadFolder = async (folderId) => {
     try {
       setMessage('📥 Preparing folder download...')
-      
+
       // Get folder info
       const { data: folder } = await supabase
         .from('folders')
         .select('name')
         .eq('id', folderId)
         .single()
-      
+
       if (!folder) {
         setMessage('❌ Folder not found!')
         return
       }
-      
+
       // Get all files in this folder
       const pathParts = await buildFolderPath(folderId)
       const fullPath = `${session.user.id}/${pathParts.join('/')}`
-      
+
       const { data: files } = await supabase
         .storage
         .from('documents')
         .list(fullPath)
-      
+
       if (files && files.length > 0) {
         // Download each file
         for (const file of files) {
@@ -465,7 +514,7 @@ function App() {
               .storage
               .from('documents')
               .download(filePath)
-            
+
             const url = window.URL.createObjectURL(fileData)
             const link = document.createElement('a')
             link.href = url
@@ -484,7 +533,7 @@ function App() {
       console.error('Download folder error:', error)
       setMessage('❌ Download error: ' + error.message)
     }
-    
+
     setShowFolderMenu(null)
   }
 
@@ -564,73 +613,58 @@ function App() {
     })
   }
 
-  const permanentlyDeleteTrashItem = (item) => {
-    openConfirmDialog({
-      title: 'Delete permanently?',
-      message: `This will permanently delete "${item.name}". This cannot be undone.`,
-      confirmText: 'Delete permanently',
-      onConfirm: async () => {
-        if (item.item_type === 'file' && item.trash_path) {
-          const { error: storageError } = await supabase
-            .storage
-            .from('documents')
-            .remove([item.trash_path])
+  const permanentlyDeleteTrashItem = async (item) => {
+    if (item.item_type === 'file' && item.trash_path) {
+      const { error: storageError } = await supabase
+        .storage
+        .from('documents')
+        .remove([item.trash_path])
 
-          if (storageError) {
-            setMessage('❌ Error deleting file from storage: ' + storageError.message)
-            return
-          }
-        }
-
-        const { error } = await supabase
-          .from('folders')
-          .delete()
-          .eq('id', item.id)
-          .eq('user_id', session.user.id)
-
-        if (error) {
-          setMessage('❌ Error deleting item: ' + error.message)
-        } else {
-          setMessage('✅ Item permanently deleted!')
-          fetchTrash()
-        }
+      if (storageError) {
+        setMessage('❌ Error deleting file from storage: ' + storageError.message)
+        return
       }
-    })
-  }
+    }
 
-  // 13. Show folder details
-  const showFolderDetails = (folder) => {
-    const createdDate = new Date(folder.created_at).toLocaleString()
-    const accessedDate = new Date(folder.last_accessed || folder.created_at).toLocaleString()
-
-    openConfirmDialog({
-      title: 'Folder details',
-      message: `Name: ${folder.name}\nCreated: ${createdDate}\nLast opened: ${accessedDate}\nFiles: ${folder.file_count || 0}`,
-      confirmText: 'Close',
-      showCancel: false,
-      onConfirm: async () => {}
-    })
-
-    setShowFolderMenu(null)
-  }
-
-  // 15. Fetch trash items
-  const fetchTrash = async () => {
-    if (!session) return
-
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from('folders')
-      .select('*')
+      .delete()
+      .eq('id', item.id)
       .eq('user_id', session.user.id)
-      .not('deleted_at', 'is', null)
-      .order('deleted_at', { ascending: false })
 
     if (error) {
-      setMessage('❌ Error fetching trash: ' + error.message)
+      setMessage('❌ Error deleting item: ' + error.message)
     } else {
-      setTrash(data || [])
+      showToast('Item permanently deleted')
+      fetchTrash()
     }
   }
+
+  // Clear all trash items
+  const clearTrash = async () => {
+    if (trash.length === 0) return
+
+    for (const item of trash) {
+      if (item.item_type === 'file' && item.trash_path) {
+        await supabase.storage.from('documents').remove([item.trash_path])
+      }
+    }
+
+    const { error } = await supabase
+      .from('folders')
+      .delete()
+      .eq('user_id', session.user.id)
+      .not('deleted_at', 'is', null)
+
+    if (error) {
+      setMessage('❌ Error clearing trash: ' + error.message)
+    } else {
+      showToast('Trash emptied')
+      fetchTrash()
+    }
+  }
+
+
 
   // 16. Rename file function
   const renameFile = async (oldFileName, newFileName) => {
@@ -642,7 +676,7 @@ function App() {
 
     try {
       setMessage('✏️ Renaming file...')
-      
+
       // Build folder path
       let folderPath = ''
       if (currentFolderId) {
@@ -704,10 +738,9 @@ function App() {
 
   // 17. Update file deletion to use trash
   const deleteFile = (fileName) => {
-    openConfirmDialog({
-      title: 'Move file to Trash?',
+    showSmallConfirm({
+      title: 'Move to Trash?',
       message: 'Are you sure you want to move this file to Trash?',
-      confirmText: 'Move to Trash',
       onConfirm: async () => {
         // Build folder path
         let folderPath = ''
@@ -729,6 +762,7 @@ function App() {
 
         if (downloadError) {
           setMessage('❌ Error reading file: ' + downloadError.message)
+          closeSmallConfirm()
           return
         }
 
@@ -739,6 +773,7 @@ function App() {
 
         if (uploadError) {
           setMessage('❌ Error moving file to trash: ' + uploadError.message)
+          closeSmallConfirm()
           return
         }
 
@@ -749,9 +784,10 @@ function App() {
 
         if (removeOriginalError) {
           setMessage('❌ File copied to trash, but removing original failed: ' + removeOriginalError.message)
+          closeSmallConfirm()
           return
         }
-        
+
         // Instead of deleting, move to trash by creating a trash record
         const { error: trashError } = await supabase
           .from('folders')
@@ -769,11 +805,14 @@ function App() {
 
         if (trashError) {
           setMessage('❌ Error moving file to trash: ' + trashError.message)
+          closeSmallConfirm()
           return
         }
 
-        setMessage('✅ File moved to Trash!')
+        showToast('File moved to Trash')
+        setShowFileMenu(null)
         fetchFiles()
+        closeSmallConfirm()
       }
     })
   }
@@ -784,7 +823,7 @@ function App() {
       <div className="login-container">
         <div className="login-content">
           <h1 className="login-title">🔐 Study Vault 🔐</h1>
-          
+
           <div className="features-grid">
             <div className="feature-card">
               <div className="feature-icon">🔒</div>
@@ -799,14 +838,14 @@ function App() {
               <div className="feature-text">Encrypted</div>
             </div>
           </div>
-          
+
           <div className="login-section">
             <h3 className="login-heading">🌐 Access Portal 🌐</h3>
             <form onSubmit={handleLogin} className="login-form">
-              <input 
-                type="email" 
-                placeholder="Enter your email address..." 
-                value={email} 
+              <input
+                type="email"
+                placeholder="Enter your email address..."
+                value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="email-input"
                 required
@@ -822,13 +861,12 @@ function App() {
     )
   }
 
-  // --- AGAR USER LOGIN HAI TO APP DIKHAO ---
   return (
     <div className="app-container">
       {/* Mobile Header with Hamburger */}
       <div className="mobile-header">
-        <button 
-          className="hamburger-btn" 
+        <button
+          className="hamburger-btn"
           onClick={() => setIsMobileSidebarOpen(!isMobileSidebarOpen)}
           aria-label="Toggle menu"
         >
@@ -840,8 +878,8 @@ function App() {
 
       {/* Sidebar Overlay for Mobile */}
       {isMobileSidebarOpen && (
-        <div 
-          className="sidebar-overlay" 
+        <div
+          className="sidebar-overlay"
           onClick={() => setIsMobileSidebarOpen(false)}
         ></div>
       )}
@@ -850,7 +888,7 @@ function App() {
       <div className={`sidebar ${isMobileSidebarOpen ? 'sidebar-open' : ''}`}>
         <div className="sidebar-header">
           <h2>📂 Study Vault</h2>
-          <button 
+          <button
             className="sidebar-close-btn"
             onClick={() => setIsMobileSidebarOpen(false)}
             aria-label="Close menu"
@@ -858,22 +896,22 @@ function App() {
             ✕
           </button>
         </div>
-        
+
         <div className="sidebar-content">
           <div className="new-section">
             <div className="dropdown">
-              <button 
+              <button
                 className="btn-new"
                 onClick={() => setShowNewDropdown(!showNewDropdown)}
               >
                 ➕ New
               </button>
-              
+
               {showNewDropdown && (
                 <div className="dropdown-menu">
-                  <button 
+                  <button
                     onClick={() => {
-                      setIsCreatingFolder(true)
+                      setNewFolderModal(true)
                       setShowNewDropdown(false)
                     }}
                     className="dropdown-item"
@@ -882,451 +920,391 @@ function App() {
                   </button>
                   <label className="dropdown-item">
                     📄 Upload File
-                    <input 
-                      type="file" 
+                    <input
+                      type="file"
                       onChange={(e) => {
                         handleUpload(e)
                         setShowNewDropdown(false)
                       }}
                       disabled={uploading}
                       className="file-input-hidden"
+                      ref={uploadInputRef}
                     />
                   </label>
                 </div>
               )}
             </div>
-
-            <button
-              className="btn-upload"
-              type="button"
-              onClick={() => {
-                if (uploadInputRef.current) {
-                  uploadInputRef.current.click()
-                }
-              }}
-              disabled={uploading}
-            >
-              ⬆️ Upload
-            </button>
-
-            <input
-              ref={uploadInputRef}
-              type="file"
-              onChange={handleUpload}
-              disabled={uploading}
-              className="file-input-hidden"
-            />
           </div>
-          
+
           <div className="nav-section">
-            <button 
+            <button
+              className={`nav-item ${currentFolderId !== 'trash' ? 'active' : ''}`}
               onClick={() => {
                 setCurrentFolderId(null)
                 setIsMobileSidebarOpen(false)
               }}
-              className={`nav-item ${!currentFolderId ? 'active' : ''}`}
             >
-              🏠 My Drive
+              📁 My Files
             </button>
-            <button 
+            <button
+              className={`nav-item ${currentFolderId === 'trash' ? 'active' : ''}`}
               onClick={() => {
                 setCurrentFolderId('trash')
-                // Clear folders and files when going to trash
-                setFolders([])
-                setFiles([])
-                fetchTrash()
                 setIsMobileSidebarOpen(false)
               }}
-              className="nav-item"
             >
               🗑️ Trash
             </button>
           </div>
         </div>
-        
+
         <div className="sidebar-footer">
           <div className="user-info">
-            <span className="user-email">👤 {session.user.email}</span>
-            <button onClick={handleLogout} className="btn-logout">⚡ LOGOUT</button>
+            <div className="user-email">{session.user.email}</div>
+            <button onClick={handleLogout} className="btn-logout">Logout</button>
           </div>
         </div>
       </div>
 
-      {/* Main Content */}
+      {/* Main Content Area */}
       <div className="main-content">
-        {/* Header with Breadcrumbs */}
-        <div className="content-header">
-          <div className="breadcrumb">
-            {currentFolderId === 'trash' ? (
-              <span>🗑️ Trash</span>
-            ) : (
-              <>
-                <button 
-                  onClick={() => setCurrentFolderId(null)}
-                  className="breadcrumb-item"
-                >
-                  🏠 My Drive
-                </button>
-                
-                {breadcrumbs.map((crumb, index) => (
-                  <span key={crumb.id}>
-                    <span className="breadcrumb-separator">/</span>
-                    <button 
-                      onClick={() => navigateToBreadcrumb(crumb.id)}
-                      className="breadcrumb-item"
-                    >
-                      📁 {crumb.name}
-                    </button>
-                  </span>
-                ))}
-              </>
-            )}
-          </div>
-        </div>
-
-        {/* Create Folder Section */}
-        {isCreatingFolder && currentFolderId !== 'trash' && (
-          <div className="create-folder-section">
-            <input 
-              type="text" 
-              placeholder="Folder name..." 
-              value={newFolderName}
-              onChange={(e) => setNewFolderName(e.target.value)}
-              className="folder-input"
-              autoFocus
-            />
-            <button 
-              onClick={createFolder}
-              className="btn-create"
-            >
-              ✅ Create
-            </button>
-            <button 
-              onClick={() => {
-                setIsCreatingFolder(false)
-                setNewFolderName('')
-              }}
-              className="btn-cancel"
-            >
-              ❌ Cancel
-            </button>
-          </div>
-        )}
-
-
-        {/* Message Display */}
-        {message && <div className="message">{message}</div>}
-
-        {confirmDialog.open && (
-          <div className="modal-overlay" onClick={closeConfirmDialog}>
-            <div className="modal" onClick={(e) => e.stopPropagation()}>
-              <div className="modal-header">
-                <h3 className="modal-title">{confirmDialog.title}</h3>
-              </div>
-              <div className="modal-body">
-                {String(confirmDialog.message)
-                  .split('\n')
-                  .map((line, idx) => (
-                    <p key={idx} className="modal-text">{line}</p>
-                  ))}
-              </div>
-              <div className="modal-actions">
-                {confirmDialog.showCancel && (
-                  <button className="btn-cancel" onClick={closeConfirmDialog}>
-                    Cancel
-                  </button>
-                )}
-                <button
-                  className="btn-create"
-                  onClick={async () => {
-                    try {
-                      if (typeof confirmActionRef.current === 'function') {
-                        await confirmActionRef.current()
-                      }
-                    } finally {
-                      closeConfirmDialog()
-                    }
-                  }}
-                >
-                  {confirmDialog.confirmText}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Trash View */}
         {currentFolderId === 'trash' ? (
-          <div className="trash-section">
-            <h3>🗑️ Trash ({trash.length}) items</h3>
+          <div className="trash-section" style={{ padding: '24px 32px' }}>
+            <div className="trash-header">
+              <h3 style={{ color: '#39ff14', fontSize: '18px', marginBottom: '16px' }}>🗑️ Trash ({trash.length} items)</h3>
+              {trash.length > 0 && (
+                <button onClick={clearTrash} className="btn-clear-trash" style={{
+                  background: 'rgba(255, 50, 50, 0.2)',
+                  color: '#ff4444',
+                  border: '1px solid #ff4444',
+                  padding: '8px 16px',
+                  borderRadius: '6px',
+                  cursor: 'pointer'
+                }}>
+                  🗑️ Empty Trash
+                </button>
+              )}
+            </div>
+
             {trash.length > 0 ? (
               <div className="files-list">
                 {trash.map((item) => (
                   <div key={item.id} className="file-item">
-                    <div className="file-icon">🗑️</div>
+                    <div className="file-icon">{item.item_type === 'folder' ? '📁' : '📄'}</div>
                     <div className="file-info">
                       <div className="file-name">{item.name}</div>
                       <div className="file-date">
-                        {new Date(item.deleted_at).toLocaleDateString()}
+                        Deleted: {new Date(item.deleted_at).toLocaleDateString()}
                       </div>
                     </div>
                     <div className="file-actions">
-                      <button onClick={() => restoreTrashItem(item)} className="btn-download">
-                        ↩️ Restore
+                      <button onClick={() => restoreTrashItem(item)} className="btn-download" title="Restore">
+                        ↩️
                       </button>
-                      <button onClick={() => permanentlyDeleteTrashItem(item)} className="btn-delete">
-                        🗑️ Delete permanently
+                      <button onClick={() => permanentlyDeleteTrashItem(item)} className="btn-delete" title="Delete Permanently">
+                        ✕
                       </button>
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className="empty-state">
-                <p>📭 Trash is empty</p>
-                <p>Items you delete will appear here</p>
+              <div className="empty-state" style={{ textAlign: 'center', padding: '40px', color: 'var(--muted)' }}>
+                <p style={{ fontSize: '48px', marginBottom: '16px' }}>📭</p>
+                <p>Trash is empty</p>
               </div>
             )}
           </div>
         ) : (
           <>
-            {/* Folders Grid */}
-            {folders.length > 0 && (
-              <div className="folders-section">
-                <h3>📁 Folders ({folders.length})</h3>
-                <div className="folders-grid">
-                  {folders.map((folder) => (
-                    <div 
-                      key={folder.id}
-                      className="folder-card"
-                      onClick={() => {
-                        navigateToFolder(folder.id)
-                        updateLastAccessed(folder.id)
-                      }}
-                    >
-                      <div className="folder-header">
-                        <div className="folder-icon">📁</div>
-                        <div className="folder-info-wrapper">
-                          {isRenamingFolder === folder.id ? (
-                            <div className="folder-rename">
-                              <input 
-                                type="text"
-                                value={renameValue}
-                                onChange={(e) => setRenameValue(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') {
-                                    renameFolder(folder.id, renameValue)
-                                  } else if (e.key === 'Escape') {
-                                    setIsRenamingFolder(null)
-                                    setRenameValue('')
-                                  }
-                                }}
-                                className="folder-rename-input"
-                                autoFocus
-                                onClick={(e) => e.stopPropagation()}
-                              />
-                              <button 
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  renameFolder(folder.id, renameValue)
-                                }}
-                                className="rename-confirm"
-                              >
-                                ✅
-                              </button>
-                            </div>
-                          ) : (
-                            <>
-                              <div className="folder-name">{folder.name}</div>
-                              <div className="folder-file-count">
-                                {folder.file_count === 0 ? '📭 Empty' : `${folder.file_count} ${folder.file_count === 1 ? 'File' : 'Files'}`}
-                              </div>
-                            </>
-                          )}
-                        </div>
-                        <div className="folder-menu-container">
-                          <button 
-                            className="folder-menu-btn"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setShowFolderMenu(showFolderMenu === folder.id ? null : folder.id)
-                            }}
-                          >
-                            ⋮
-                          </button>
-                          
-                          {showFolderMenu === folder.id && (
-                            <div className="folder-menu">
-                              <button 
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  downloadFolder(folder.id)
-                                }}
-                                className="menu-item"
-                              >
-                                📥 Download folder
-                              </button>
-                              <button 
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  setIsRenamingFolder(folder.id)
-                                  setRenameValue(folder.name)
-                                  setShowFolderMenu(null)
-                                }}
-                                className="menu-item"
-                              >
-                                ✏️ Rename
-                              </button>
-                              <button 
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  moveToTrash(folder.id)
-                                }}
-                                className="menu-item trash"
-                              >
-                                🗑️ Move to trash
-                              </button>
-                              <button 
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  showFolderDetails(folder)
-                                }}
-                                className="menu-item"
-                              >
-                                ℹ️ Details
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      
-                      <div className="folder-date">
-                        {new Date(folder.created_at).toLocaleDateString()}
-                      </div>
-                    </div>
-                  ))}
+            {/* Content Header (Breadcrumbs) */}
+            <div className="content-header">
+              <div className="breadcrumb">
+                <div
+                  className="breadcrumb-item"
+                  onClick={() => navigateToFolder(null)}
+                >
+                  🏠 Home
                 </div>
+                {breadcrumbs.map((crumb, index) => (
+                  <div key={crumb.id} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span className="breadcrumb-separator">/</span>
+                    <div
+                      className="breadcrumb-item"
+                      onClick={() => navigateToBreadcrumb(crumb.id)}
+                    >
+                      {crumb.name}
+                    </div>
+                  </div>
+                ))}
               </div>
-            )}
+            </div>
 
-            {/* Files List */}
-            <div className="files-section">
-              <h3>📄 Files ({files.length})</h3>
-              {files.length > 0 ? (
-                <div className="files-list">
-                  {files.map((file) => (
-                    <div key={file.name} className="file-item">
-                      <div className="file-icon">📄</div>
-                      <div className="file-info">
-                        {isRenamingFile === file.name ? (
-                          <div className="file-rename">
-                            <input 
+            {/* Content Body Unified List View */}
+            <div className="content-body" style={{ padding: 0 }}>
+              {/* List Header */}
+              <div className="list-header">
+                <div className="list-header-item">Name</div>
+                <div className="list-header-item">Owner</div>
+                <div className="list-header-item">Date Modified</div>
+                <div className="list-header-item">File size</div>
+                <div className="list-header-item"></div>
+              </div>
+
+              {/* Combined List Items */}
+              <div className="list-view-container">
+                {folders.length === 0 && files.length === 0 ? (
+                  <div className="empty-state">
+                    <p>📭 This folder is empty</p>
+                  </div>
+                ) : (
+                  <>
+                    {/* Render Folders first */}
+                    {folders.map(folder => (
+                      <div
+                        key={`folder-${folder.id}`}
+                        className="list-row"
+                        onDoubleClick={() => navigateToFolder(folder.id)}
+                        onClick={() => {
+                          if (window.innerWidth <= 768) navigateToFolder(folder.id)
+                        }}
+                      >
+                        <div className="list-cell name-cell">
+                          <div className="list-icon">📁</div>
+                          {isRenamingFolder === folder.id ? (
+                            <input
                               type="text"
+                              className="folder-input-modal"
                               value={renameValue}
                               onChange={(e) => setRenameValue(e.target.value)}
                               onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  renameFile(file.name, renameValue)
-                                } else if (e.key === 'Escape') {
-                                  setIsRenamingFile(null)
-                                  setRenameValue('')
-                                }
+                                if (e.key === 'Enter') renameFolder(folder.id, renameValue)
                               }}
-                              className="file-rename-input"
-                              autoFocus
                               onClick={(e) => e.stopPropagation()}
+                              autoFocus
+                              onBlur={() => setIsRenamingFolder(null)}
                             />
-                            <button 
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                renameFile(file.name, renameValue)
-                              }}
-                              className="rename-confirm"
-                            >
-                              ✅
-                            </button>
-                            <button 
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setIsRenamingFile(null)
-                                setRenameValue('')
-                              }}
-                              className="rename-cancel"
-                            >
-                              ❌
-                            </button>
+                          ) : (
+                            <span>{folder.name}</span>
+                          )}
+                        </div>
+                        <div className="list-cell secondary-cell">
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <div style={{ width: '20px', height: '20px', borderRadius: '50%', background: '#39ff14', color: 'black', fontSize: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>me</div>
+                            me
                           </div>
-                        ) : (
-                          <div className="file-name">{file.name}</div>
-                        )}
-                      </div>
-
-                      <div className="file-menu-container">
-                        <button
-                          className="file-menu-btn"
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setShowFileMenu(showFileMenu === file.name ? null : file.name)
-                          }}
-                        >
-                          ⋮
-                        </button>
-
-                        {showFileMenu === file.name && (
-                          <div className="file-menu">
+                        </div>
+                        <div className="list-cell secondary-cell">
+                          {new Date(folder.created_at).toLocaleDateString()}
+                        </div>
+                        <div className="list-cell secondary-cell">
+                          —
+                        </div>
+                        <div className="list-cell action-cell" onClick={(e) => e.stopPropagation()}>
+                          <div className="folder-menu-container">
                             <button
-                              className="menu-item"
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setShowFileMenu(null)
-                                downloadFile(file.name)
-                              }}
+                              className="list-action-btn"
+                              onClick={() => setShowFolderMenu(showFolderMenu === folder.id ? null : folder.id)}
                             >
-                              ⬇️ Download
+                              ⋮
                             </button>
-                            <button
-                              className="menu-item"
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setIsRenamingFile(file.name)
-                                setRenameValue(file.name)
-                                setShowFileMenu(null)
-                              }}
-                            >
-                              ✏️ Rename
-                            </button>
-                            <button
-                              className="menu-item trash"
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                setShowFileMenu(null)
-                                deleteFile(file.name)
-                              }}
-                            >
-                              🗑️ Delete
-                            </button>
+                            {showFolderMenu === folder.id && (
+                              <div className="dropdown-menu" style={{ right: 0 }}>
+                                <button
+                                  className="dropdown-item"
+                                  onClick={() => {
+                                    setIsRenamingFolder(folder.id)
+                                    setRenameValue(folder.name)
+                                    setShowFolderMenu(null)
+                                  }}
+                                >
+                                  ✏️ Rename
+                                </button>
+                                <button
+                                  className="dropdown-item"
+                                  onClick={() => downloadFolder(folder.id)}
+                                >
+                                  📥 Download
+                                </button>
+                                <button
+                                  className="dropdown-item"
+                                  style={{ color: '#ff4444' }}
+                                  onClick={() => moveToTrash(folder.id)}
+                                >
+                                  🗑️ Move to Trash
+                                </button>
+                              </div>
+                            )}
                           </div>
-                        )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                folders.length === 0 && (
-                  <div className="empty-state">
-                    <p>📭 No files in this folder yet.</p>
-                    <p>Click "New" to upload files or create folders!</p>
-                  </div>
-                )
-              )}
+                    ))}
+
+                    {/* Render Files next */}
+                    {files.map(file => (
+                      <div key={`file-${file.name}`} className="list-row">
+                        <div className="list-cell name-cell">
+                          <div className="list-icon">
+                            {file.metadata?.mimetype?.includes('image') ? '🖼️' : '📄'}
+                          </div>
+                          {isRenamingFile === file.name ? (
+                            <input
+                              type="text"
+                              className="file-input-modal"
+                              value={renameValue}
+                              onChange={(e) => setRenameValue(e.target.value)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') renameFile(file.name, renameValue)
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              autoFocus
+                              onBlur={() => setIsRenamingFile(null)}
+                            />
+                          ) : (
+                            <span>{file.name}</span>
+                          )}
+                        </div>
+                        <div className="list-cell secondary-cell">
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <div style={{ width: '20px', height: '20px', borderRadius: '50%', background: '#39ff14', color: 'black', fontSize: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>me</div>
+                            me
+                          </div>
+                        </div>
+                        <div className="list-cell secondary-cell">
+                          {new Date(file.created_at).toLocaleDateString()}
+                        </div>
+                        <div className="list-cell secondary-cell">
+                          {(file.metadata?.size / 1024).toFixed(1)} KB
+                        </div>
+                        <div className="list-cell action-cell">
+                          <div className="file-menu-container">
+                            <button
+                              className="list-action-btn"
+                              onClick={() => setShowFileMenu(showFileMenu === file.name ? null : file.name)}
+                            >
+                              ⋮
+                            </button>
+                            {showFileMenu === file.name && (
+                              <div className="dropdown-menu" style={{ right: 0 }}>
+                                <button
+                                  className="dropdown-item"
+                                  onClick={() => downloadFile(file.name)}
+                                >
+                                  📥 Download
+                                </button>
+                                <button
+                                  className="dropdown-item"
+                                  onClick={() => {
+                                    setIsRenamingFile(file.name)
+                                    setRenameValue(file.name)
+                                    setShowFileMenu(null)
+                                  }}
+                                >
+                                  ✏️ Rename
+                                </button>
+                                <button
+                                  className="dropdown-item"
+                                  style={{ color: '#ff4444' }}
+                                  onClick={() => deleteFile(file.name)}
+                                >
+                                  🗑️ Move to Trash
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </>
+                )}
+              </div>
             </div>
           </>
         )}
       </div>
+
+      {/* Toast Notifications */}
+      <div className="toast-container">
+        {toasts.map(toast => (
+          <div key={toast.id} className="toast" onClick={() => removeToast(toast.id)}>
+            {toast.message}
+          </div>
+        ))}
+      </div>
+
+      {/* New Folder Modal */}
+      {newFolderModal && (
+        <div className="modal-overlay">
+          <div className="modal">
+            <h3>Create New Folder</h3>
+            <div style={{ padding: '16px 24px' }}>
+              <input
+                type="text"
+                placeholder="Folder Name"
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                className="folder-input-modal"
+                autoFocus
+              />
+            </div>
+            <div className="modal-actions">
+              <button onClick={() => setNewFolderModal(false)} className="btn-cancel">Cancel</button>
+              <button onClick={createFolder} className="btn-create">Create</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm Dialog */}
+      {confirmDialog.open && (
+        <div className="modal-overlay">
+          <div className="modal">
+            <h3>{confirmDialog.title}</h3>
+            <div style={{ padding: '0 24px' }}>
+              <p>{confirmDialog.message}</p>
+            </div>
+            <div className="modal-actions">
+              {confirmDialog.showCancel && (
+                <button onClick={closeConfirmDialog} className="btn-cancel">Cancel</button>
+              )}
+              <button
+                onClick={() => {
+                  if (confirmActionRef.current) confirmActionRef.current()
+                  closeConfirmDialog()
+                }}
+                className="btn-create"
+              >
+                {confirmDialog.confirmText}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Small Confirm Dialog */}
+      {smallConfirm.open && (
+        <div className="modal-overlay">
+          <div className="modal">
+            <h3>{smallConfirm.title}</h3>
+            <div style={{ padding: '0 24px' }}>
+              <p>{smallConfirm.message}</p>
+            </div>
+            <div className="modal-actions">
+              <button onClick={closeSmallConfirm} className="btn-cancel">Cancel</button>
+              <button
+                onClick={() => {
+                  if (smallConfirm.onConfirm) smallConfirm.onConfirm()
+                  // closeSmallConfirm is called inside the onConfirm usually, but here just in case
+                }}
+                className="btn-create"
+                style={{ background: '#ff4444', color: 'white' }}
+              >
+                Confirm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
